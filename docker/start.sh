@@ -21,7 +21,7 @@ docker compose -f docker-compose.proxy.yml up -d
 
 # --- 4. Launch ERPNext Site ---
 echo "🚀 Starting ERPNext site 'erpsb1'..."
-docker compose -p erpsb1 -f docker-compose.erp.yml up -d
+docker compose -p erpsb1 -f docker-compose.erp-sb1.yml up -d
 
 echo ""
 echo "🎉 All services are up and running!"
