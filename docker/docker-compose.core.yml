@@ -1,51 +1,116 @@
-version: "3.8"
+version: "3"
 
 services:
-  db:
-    image: mariadb:10.6
+  backend:
+    image: frappe/erpnext:v15.74.0
     networks:
       - frappe_network
-    healthcheck:
-      test: mysqladmin ping -h localhost --password=admin
-      interval: 1s
-      retries: 20
+    deploy:
+      restart_policy:
+        condition: on-failure
+    extra_hosts:
+      - "erp-sb1.mitrabisnisdigital.com:host-gateway"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
+
+  frontend:
+    image: frappe/erpnext:v15.74.0
+    networks:
+      - frappe_network
+    depends_on:
+      - websocket
     deploy:
       restart_policy:
         condition: on-failure
     command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      - --skip-character-set-client-handshake
-      - --skip-innodb-read-only-compressed
+      - nginx-entrypoint.sh
     environment:
-      MYSQL_ROOT_PASSWORD: admin
-      MARIADB_ROOT_PASSWORD: admin
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.erp.rule=HostRegexp(`{subdomain:[a-z0-9-]+}.mitrabisnisdigital.com`)"
+      - "traefik.http.routers.erp.entrypoints=websecure"
+      - "traefik.http.routers.erp.tls.certresolver=myresolver"
+      - "traefik.http.services.erp.loadbalancer.server.port=8080"
+      - "traefik.http.routers.erp-sb1.rule=Host(`erp-sb1.mitrabisnisdigital.com`)"
+      - "traefik.http.routers.erp-sb1.entrypoints=websecure"
+      - "traefik.http.routers.erp-sb1.tls=true"
+      - "traefik.http.routers.erp-sb1.tls.certresolver=myresolver"
+      - "traefik.http.routers.erp-sb1.service=erp"
+    ports:
+      - "8080:8080"
     volumes:
-      - db-data:/var/lib/mysql
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
 
-  redis-queue:
-    image: redis:6.2-alpine
+  websocket:
+    image: frappe/erpnext:v15.74.0
     networks:
       - frappe_network
     deploy:
       restart_policy:
         condition: on-failure
+    command:
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
     volumes:
-      - redis-queue-data:/data
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
 
-  redis-cache:
-    image: redis:6.2-alpine
+  scheduler:
+    image: frappe/erpnext:v15.74.0
     networks:
       - frappe_network
     deploy:
       restart_policy:
         condition: on-failure
+    command:
+      - bench
+      - schedule
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
 
-volumes:
-  db-data:
-  redis-queue-data:
+  queue-long:
+    image: frappe/erpnext:v15.74.0
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command: ["bench", "worker", "--queue", "long,default,short"]
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  queue-short:
+    image: frappe/erpnext:v15.74.0
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command: ["bench", "worker", "--queue", "short,default"]
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
 
 networks:
   frappe_network:
-    name: frappe_network
-    driver: bridge
+    external: true
+
+volumes:
+  sites:
+  logs:
