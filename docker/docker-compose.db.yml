@@ -47,4 +47,5 @@ volumes:
 
 networks:
   frappe_network:
+    name: frappe_network
     external: true
