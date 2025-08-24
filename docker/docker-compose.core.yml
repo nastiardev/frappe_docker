@@ -1,0 +1,50 @@
+version: "3.8"
+
+services:
+  db:
+    image: mariadb:10.6
+    networks:
+      - frappe_network
+    healthcheck:
+      test: mysqladmin ping -h localhost --password=admin
+      interval: 1s
+      retries: 20
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
+    volumes:
+      - db-data:/var/lib/mysql
+
+  redis-queue:
+    image: redis:6.2-alpine
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - redis-queue-data:/data
+
+  redis-cache:
+    image: redis:6.2-alpine
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  db-data:
+  redis-queue-data:
+
+networks:
+  frappe_network:
+    driver: bridge
