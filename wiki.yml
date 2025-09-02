@@ -115,12 +115,7 @@ services:
         echo "sites/common_site_config.json found";
 
         # 👇 CHANGE 2: Add the flag to install the wiki app during site creation.
-        bench new-site --no-mariadb-socket \
-          --mariadb-root-password=$$DB_ROOT_PASSWORD \
-          --admin-password=$$ADMIN_PASSWORD \
-          --db-root-username=root \
-          --install-app frappe_wiki \
-          --set-default $$FRAPPE_SITE_NAME;
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app wiki --set-default $$FRAPPE_SITE_NAME;
           
         # This sets the hostname for correct URL generation.
         bench --site $$FRAPPE_SITE_NAME set-config host_name "https://$$FRAPPE_SITE_NAME";
