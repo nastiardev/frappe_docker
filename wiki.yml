@@ -115,10 +115,10 @@ services:
         echo "sites/common_site_config.json found";
 
         # 👇 CHANGE 2: Add the flag to install the wiki app during site creation.
-        bench new-site --mariadb-user-host-login-scope='%' --admin-password=$$ADMIN_PASSWORD --db-root-username=root --db-root-password=$$DB_ROOT_PASSWORD --install-app wiki --set-default $$FRAPPE_SITE_NAME;
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app wiki --set-default wiki.mitrabisnisdigital.com;
           
         # This sets the hostname for correct URL generation.
-        bench --site $$FRAPPE_SITE_NAME set-config host_name "https://$$FRAPPE_SITE_NAME";
+        bench --site wiki.mitrabisnisdigital.com set-config host_name "https://wiki.mitrabisnisdigital.com";
 
     environment:
       # Pass the variables to the container
