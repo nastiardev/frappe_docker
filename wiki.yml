@@ -1,0 +1,282 @@
+version: "3"
+
+services:
+  traefik:
+    image: traefik:v2.11
+    container_name: traefik
+    command:
+      - "--api.dashboard=true"
+      # In production, secure the dashboard. Example: --api.dashboard.auth.basic.users=user:$$apr1$$...
+      - "--api.insecure=true" 
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      # Use the variable from the .env file
+      - "--certificatesresolvers.myresolver.acme.email=${LETSENCRYPT_EMAIL}" 
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8081:8080" # Optional: Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-letsencrypt:/letsencrypt
+    networks:
+      - frappe_network
+    restart: unless-stopped
+
+  backend:
+    image: frappe/erpnext:v15.74.0
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    # The 'extra_hosts' entry is often not needed for single-site setups and can be removed.
+    # extra_hosts:
+    #   - "${FRAPPE_SITE_NAME}:host-gateway"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      # Use the variable from the .env file
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+
+  configurator:
+    image: frappe/erpnext:v15.74.0
+    # ... (rest of the service is mostly fine) ...
+    # Ensure environment variables match the rest of the file
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: "9000"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: none
+    entrypoint:
+      - bash
+      - -c
+    command:
+      - >
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host $$DB_HOST;
+        bench set-config -gp db_port $$DB_PORT;
+        bench set-config -g redis_cache "redis://$$REDIS_CACHE";
+        bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
+        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
+        bench set-config -gp socketio_port $$SOCKETIO_PORT;
+
+
+  create-site:
+    image: frappe/erpnext:v15.74.0
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: none
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    # This service runs once to create your site.
+    # It now uses variables from the .env file.
+    entrypoint:
+      - bash
+      - -c
+    command:
+      - >
+        wait-for-it -t 120 db:3306;
+        wait-for-it -t 120 redis-cache:6379;
+        wait-for-it -t 120 redis-queue:6379;
+        export start=`date +%s`;
+        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
+        do
+          echo "Waiting for sites/common_site_config.json to be created";
+          sleep 5;
+          if (( `date +%s`-start > 120 )); then
+            echo "could not find sites/common_site_config.json with required keys";
+            exit 1
+          fi
+        done;
+        echo "sites/common_site_config.json found";
+        # 👇 THIS IS THE CRITICAL COMMAND TO CREATE YOUR SITE.
+        # It's now uncommented and uses variables.
+        bench new-site --no-mariadb-socket --mariadb-root-password=$$DB_ROOT_PASSWORD --admin-password=$$ADMIN_PASSWORD --db-root-username=root --install-app erpnext --set-default $$FRAPPE_SITE_NAME;
+        # This sets the hostname for correct URL generation.
+        bench --site $$FRAPPE_SITE_NAME set-config host_name "https://$$FRAPPE_SITE_NAME";
+
+    environment:
+      # Pass the variables to the container
+      FRAPPE_SITE_NAME: ${FRAPPE_SITE_NAME}
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+
+  db:
+    image: mariadb:10.6
+    healthcheck:
+      test: mysqladmin ping -h localhost --password=${DB_ROOT_PASSWORD}
+      interval: 1s
+      retries: 20
+    # ... (rest of the db service is fine) ...
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+
+
+  frontend:
+    image: frappe/erpnext:v15.74.0
+    # ... (rest of the service is fine) ...
+    # 👇 CORRECTED TRAEFIK LABELS
+    labels:
+      - "traefik.enable=true"
+      # Create a router for HTTP to HTTPS redirection
+      - "traefik.http.routers.wiki-http.rule=Host(`${FRAPPE_SITE_NAME}`)"
+      - "traefik.http.routers.wiki-http.entrypoints=web"
+      - "traefik.http.routers.wiki-http.middlewares=https-redirect"
+      - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
+      # Create the main router for HTTPS traffic
+      - "traefik.http.routers.wiki-https.rule=Host(`${FRAPPE_SITE_NAME}`)"
+      - "traefik.http.routers.wiki-https.entrypoints=websecure"
+      - "traefik.http.routers.wiki-https.tls.certresolver=myresolver"
+      # Point Traefik to the correct service and internal port
+      - "traefik.http.services.wiki.loadbalancer.server.port=80"
+    # 🚨 The 'ports' section is removed as Traefik will handle traffic.
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    networks:
+      - frappe_network
+    depends_on:
+      - websocket
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - nginx-entrypoint.sh
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+
+
+  # NO CHANGES NEEDED FOR THE SERVICES BELOW
+  # ... (queue-long, queue-short, redis-queue, etc.) ...
+  queue-long:
+    image: frappe/erpnext:v15.74.0
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - worker
+      - --queue
+      - long,default,short
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  queue-short:
+    image: frappe/erpnext:v15.74.0
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - worker
+      - --queue
+      - short,default
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  redis-queue:
+    image: redis:6.2-alpine
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - redis-queue-data:/data
+
+  redis-cache:
+    image: redis:6.2-alpine
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  scheduler:
+    image: frappe/erpnext:v15.74.0
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - schedule
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  websocket:
+    image: frappe/erpnext:v15.74.0
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+
+volumes:
+  db-data:
+  redis-queue-data:
+  sites:
+  logs:
+  traefik-letsencrypt:
+
+networks:
+  frappe_network:
+    driver: bridge
