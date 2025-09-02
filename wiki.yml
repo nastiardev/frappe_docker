@@ -6,21 +6,19 @@ services:
     container_name: traefik
     command:
       - "--api.dashboard=true"
-      # In production, secure the dashboard. Example: --api.dashboard.auth.basic.users=user:$$apr1$$...
-      - "--api.insecure=true" 
+      - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
       - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
-      # Use the variable from the .env file
-      - "--certificatesresolvers.myresolver.acme.email=${LETSENCRYPT_EMAIL}" 
+      - "--certificatesresolvers.myresolver.acme.email=nastiar.dev@gmail.com"
       - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
     ports:
       - "80:80"
       - "443:443"
-      - "8081:8080" # Optional: Traefik dashboard
+      - "8081:8080" # optional: dashboard access
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik-letsencrypt:/letsencrypt
@@ -35,32 +33,19 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
-    # The 'extra_hosts' entry is often not needed for single-site setups and can be removed.
     # extra_hosts:
-    #   - "${FRAPPE_SITE_NAME}:host-gateway"
+    #  - "wiki.mitrabisnisdigital.com:host-gateway"
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
     environment:
       DB_HOST: db
       DB_PORT: "3306"
-      # Use the variable from the .env file
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
 
   configurator:
     image: erpnext-wiki:v15.74.0
-    # ... (rest of the service is mostly fine) ...
-    # Ensure environment variables match the rest of the file
-    environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      REDIS_CACHE: redis-cache:6379
-      REDIS_QUEUE: redis-queue:6379
-      SOCKETIO_PORT: "9000"
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
     networks:
       - frappe_network
     deploy:
@@ -78,7 +63,15 @@ services:
         bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
         bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
         bench set-config -gp socketio_port $$SOCKETIO_PORT;
-
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: "9000"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
 
   create-site:
     image: erpnext-wiki:v15.74.0
@@ -90,8 +83,6 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-    # This service runs once to create your site.
-    # It now uses variables from the .env file.
     entrypoint:
       - bash
       - -c
@@ -113,30 +104,17 @@ services:
           fi
         done;
         echo "sites/common_site_config.json found";
-
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app wiki --set-default wiki.mitrabisnisdigital.com;
-        bench --site wiki.mitrabisnisdigital.com set-config host_name "https://wiki.mitrabisnisdigital.com";
-
-    environment:
-      # Pass the variables to the container
-      FRAPPE_SITE_NAME: ${FRAPPE_SITE_NAME}
-      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+        bench --site wiki.mitrabisnisdigital.com set-config host_name http://wiki.mitrabisnisdigital.com;
 
   db:
     image: mariadb:10.6
-    healthcheck:
-      test: mysqladmin ping -h localhost --password=${DB_ROOT_PASSWORD}
-      interval: 1s
-      retries: 20
-    # ... (rest of the db service is fine) ...
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-    volumes:
-      - db-data:/var/lib/mysql
     networks:
       - frappe_network
+    healthcheck:
+      test: mysqladmin ping -h localhost --password=admin
+      interval: 1s
+      retries: 20
     deploy:
       restart_policy:
         condition: on-failure
@@ -144,30 +122,15 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --skip-character-set-client-handshake
-      - --skip-innodb-read-only-compressed
-
+      - --skip-innodb-read-only-compressed # Temporary fix for MariaDB 10.6
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
+    volumes:
+      - db-data:/var/lib/mysql
 
   frontend:
     image: erpnext-wiki:v15.74.0
-    # ... (rest of the service is fine) ...
-    # 👇 CORRECTED TRAEFIK LABELS
-    labels:
-      - "traefik.enable=true"
-      # Create a router for HTTP to HTTPS redirection
-      - "traefik.http.routers.wiki-http.rule=Host(`${FRAPPE_SITE_NAME}`)"
-      - "traefik.http.routers.wiki-http.entrypoints=web"
-      - "traefik.http.routers.wiki-http.middlewares=https-redirect"
-      - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
-      # Create the main router for HTTPS traffic
-      - "traefik.http.routers.wiki-https.rule=Host(`${FRAPPE_SITE_NAME}`)"
-      - "traefik.http.routers.wiki-https.entrypoints=websecure"
-      - "traefik.http.routers.wiki-https.tls.certresolver=myresolver"
-      # Point Traefik to the correct service and internal port
-      - "traefik.http.services.wiki.loadbalancer.server.port=80"
-    # 🚨 The 'ports' section is removed as Traefik will handle traffic.
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
     networks:
       - frappe_network
     depends_on:
@@ -179,16 +142,33 @@ services:
       - nginx-entrypoint.sh
     environment:
       BACKEND: backend:8000
+      # FRAPPE_SITE_NAME_HEADER: wiki.mitrabisnisdigital.com
       SOCKETIO: websocket:9000
       UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
       UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
       UPSTREAM_REAL_IP_RECURSIVE: "off"
       PROXY_READ_TIMEOUT: 120
       CLIENT_MAX_BODY_SIZE: 50m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.erp.rule=HostRegexp(`{subdomain:[a-z0-9-]+}.mitrabisnisdigital.com`)"
+      - "traefik.http.routers.erp.entrypoints=websecure"
+      - "traefik.http.routers.erp.tls.certresolver=myresolver"
+      - "traefik.http.services.erp.loadbalancer.server.port=8080"
+      
+      # 👇 Explicit router for wiki with TLS and service
+      - "traefik.http.routers.wiki.rule=Host(`wiki.mitrabisnisdigital.com`)"
+      - "traefik.http.routers.wiki.entrypoints=websecure"
+      - "traefik.http.routers.wiki.tls=true"
+      - "traefik.http.routers.wiki.tls.certresolver=myresolver"
+      - "traefik.http.routers.wiki.service=erp"  # 👈 don't forget this line!
 
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    ports:
+      - "8080:8080"
 
-  # NO CHANGES NEEDED FOR THE SERVICES BELOW
-  # ... (queue-long, queue-short, redis-queue, etc.) ...
   queue-long:
     image: erpnext-wiki:v15.74.0
     networks:
@@ -266,7 +246,6 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-
 
 volumes:
   db-data:
