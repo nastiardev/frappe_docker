@@ -1,0 +1,65 @@
+version: "3.8"
+
+services:
+  # Service 1: A one-off task to create the new Frappe site.
+  # It connects to your existing volumes and network to run the commands.
+  create-erp-site:
+    image: erpnext-wiki:v15.74.0
+    container_name: create-erp-site
+    networks:
+      - frappe_network # MUST match the internal network name of your main compose file
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites   # MUST match the sites volume of your main compose file
+      - logs:/home/frappe/frappe-bench/logs     # MUST match the logs volume of your main compose file
+    entrypoint:
+      - bash
+      - -c
+    command:
+      - >
+        echo "Waiting for the main database to be ready...";
+        wait-for-it -t 120 db:3306;
+        echo "Database is ready. Creating new site: erp.mitrabisnisdigital.com";
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app wiki --set-default erp.mitrabisnisdigital.com;
+        bench --site erp.mitrabisnisdigital.com set-config host_name http://erp.mitrabisnisdigital.com;
+        echo "Site creation complete.";
+    deploy:
+      restart_policy:
+        condition: none # Ensures this container does not restart after its job is done
+
+  # Service 2: A permanent, lightweight proxy to handle Traefik routing for the new site.
+  erp-proxy:
+    image: nginx:1.25-alpine
+    container_name: erp-proxy
+    networks:
+      - frappe_network # Connects to the main Frappe network to see the 'frontend' service
+      - traefik_network # Connects to Traefik's public network
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro # Mounts the configuration file
+    labels:
+      # --- Traefik labels to handle routing, DNS, and SSL for the new domain ---
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_network" # Tell Traefik which network to use
+      
+      # Router definition for the new ERP site
+      - "traefik.http.routers.erp-site.rule=Host(`erp.mitrabisnisdigital.com`)"
+      - "traefik.http.routers.erp-site.entrypoints=websecure"
+      - "traefik.http.routers.erp-site.tls.certresolver=myresolver"
+      - "traefik.http.routers.erp-site.service=erp-site-service"
+
+      # Service definition pointing to this NGINX container
+      - "traefik.http.services.erp-site-service.loadbalancer.server.port=80"
+    restart: unless-stopped
+
+# --- External Network and Volume Definitions ---
+# These tell Docker to connect to resources created by your main compose file.
+volumes:
+  sites:
+    external: true
+  logs:
+    external: true
+
+networks:
+  frappe_network:
+    external: true
+  traefik_network:
+    external: true
