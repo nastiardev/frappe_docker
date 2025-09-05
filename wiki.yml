@@ -161,7 +161,13 @@ services:
       - "traefik.http.routers.wiki.entrypoints=websecure"
       - "traefik.http.routers.wiki.tls=true"
       - "traefik.http.routers.wiki.tls.certresolver=myresolver"
-      - "traefik.http.routers.wiki.service=erp"  # 👈 don't forget this line!
+      - "traefik.http.routers.wiki.service=erp"
+
+      - "traefik.http.routers.erp.rule=Host(`erp.mitrabisnisdigital.com`)"
+      - "traefik.http.routers.erp.entrypoints=websecure"
+      - "traefik.http.routers.erp.tls=true"
+      - "traefik.http.routers.erp.tls.certresolver=myresolver"
+      - "traefik.http.routers.erp.service=erp"  
 
     volumes:
       - sites:/home/frappe/frappe-bench/sites
