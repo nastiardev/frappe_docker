@@ -27,14 +27,14 @@ services:
     restart: unless-stopped
 
   backend:
-    image: frappe/erpnext:v15.74.0
+    image: erpnext-wiki:v15.74.0
     networks:
       - frappe_network
     deploy:
       restart_policy:
         condition: on-failure
-    extra_hosts:
-     - "erp-sb1.mitrabisnisdigital.com:host-gateway"
+    # extra_hosts:
+    #  - "wiki.mitrabisnisdigital.com:host-gateway"
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
@@ -45,7 +45,7 @@ services:
       MARIADB_ROOT_PASSWORD: admin
 
   configurator:
-    image: frappe/erpnext:v15.74.0
+    image: erpnext-wiki:v15.74.0
     networks:
       - frappe_network
     deploy:
@@ -74,7 +74,7 @@ services:
       - logs:/home/frappe/frappe-bench/logs
 
   create-site:
-    image: frappe/erpnext:v15.74.0
+    image: erpnext-wiki:v15.74.0
     networks:
       - frappe_network
     deploy:
@@ -104,8 +104,10 @@ services:
           fi
         done;
         echo "sites/common_site_config.json found";
-      # bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default erp-sb1.mitrabisnisdigital.com;
-      # bench --site erp-sb1.mitrabisnisdigital.com set-config host_name http://erp-sb1.mitrabisnisdigital.com;
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app wiki --set-default wiki.mitrabisnisdigital.com;
+        bench --site wiki.mitrabisnisdigital.com set-config host_name http://wiki.mitrabisnisdigital.com;
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default erp.mitrabisnisdigital.com;
+        bench --site erp.mitrabisnisdigital.com set-config host_name http://erp.mitrabisnisdigital.com;
 
   db:
     image: mariadb:10.6
@@ -130,7 +132,7 @@ services:
       - db-data:/var/lib/mysql
 
   frontend:
-    image: frappe/erpnext:v15.74.0
+    image: erpnext-wiki:v15.74.0
     networks:
       - frappe_network
     depends_on:
@@ -142,7 +144,7 @@ services:
       - nginx-entrypoint.sh
     environment:
       BACKEND: backend:8000
-      # FRAPPE_SITE_NAME_HEADER: erp-sb1.mitrabisnisdigital.com
+      # FRAPPE_SITE_NAME_HEADER: wiki.mitrabisnisdigital.com
       SOCKETIO: websocket:9000
       UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
       UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
@@ -151,17 +153,18 @@ services:
       CLIENT_MAX_BODY_SIZE: 50m
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.erp.rule=HostRegexp(`{subdomain:[a-z0-9-]+}.mitrabisnisdigital.com`)"
+      - "traefik.http.routers.erp.rule=Host(`erp.mitrabisnisdigital.com`)"
       - "traefik.http.routers.erp.entrypoints=websecure"
       - "traefik.http.routers.erp.tls.certresolver=myresolver"
+      - "traefik.http.routers.erp.service=erp"
       - "traefik.http.services.erp.loadbalancer.server.port=8080"
-      
-      # 👇 Explicit router for erp-sb3 with TLS and service
-      - "traefik.http.routers.erp-sb3.rule=Host(`erp-sb3.mitrabisnisdigital.com`)"
-      - "traefik.http.routers.erp-sb3.entrypoints=websecure"
-      - "traefik.http.routers.erp-sb3.tls=true"
-      - "traefik.http.routers.erp-sb3.tls.certresolver=myresolver"
-      - "traefik.http.routers.erp-sb3.service=erp"  # 👈 don't forget this line!
+
+      # 👇 Explicit router for wiki with TLS and service
+      - "traefik.http.routers.wiki.rule=Host(`wiki.mitrabisnisdigital.com`)"
+      - "traefik.http.routers.wiki.entrypoints=websecure"
+      - "traefik.http.routers.wiki.tls=true"
+      - "traefik.http.routers.wiki.tls.certresolver=myresolver"
+      - "traefik.http.routers.wiki.service=erp"
 
     volumes:
       - sites:/home/frappe/frappe-bench/sites
@@ -170,7 +173,7 @@ services:
       - "8080:8080"
 
   queue-long:
-    image: frappe/erpnext:v15.74.0
+    image: erpnext-wiki:v15.74.0
     networks:
       - frappe_network
     deploy:
@@ -186,7 +189,7 @@ services:
       - logs:/home/frappe/frappe-bench/logs
 
   queue-short:
-    image: frappe/erpnext:v15.74.0
+    image: erpnext-wiki:v15.74.0
     networks:
       - frappe_network
     deploy:
@@ -220,7 +223,7 @@ services:
         condition: on-failure
 
   scheduler:
-    image: frappe/erpnext:v15.74.0
+    image: erpnext-wiki:v15.74.0
     networks:
       - frappe_network
     deploy:
@@ -234,7 +237,7 @@ services:
       - logs:/home/frappe/frappe-bench/logs
 
   websocket:
-    image: frappe/erpnext:v15.74.0
+    image: erpnext-wiki:v15.74.0
     networks:
       - frappe_network
     deploy:
