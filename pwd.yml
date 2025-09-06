@@ -105,9 +105,13 @@ services:
         done;
         echo "sites/common_site_config.json found";
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app wiki --set-default wiki.mitrabisnisdigital.com;
-        bench --site wiki.mitrabisnisdigital.com set-config host_name http://wiki.mitrabisnisdigital.com;
+        bench --site wiki.mitrabisnisdigital.com set-config host_name http://frontend:8080;
+
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default erp.mitrabisnisdigital.com;
-        bench --site erp.mitrabisnisdigital.com set-config host_name http://erp.mitrabisnisdigital.com;
+        bench --site erp.mitrabisnisdigital.com set-config host_name http://frontend:8080;
+
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default sb1.mitrabisnisdigital.com;
+        bench --site sb1.mitrabisnisdigital.com set-config host_name http://frontend:8080;
 
   db:
     image: mariadb:10.6
@@ -165,6 +169,12 @@ services:
       - "traefik.http.routers.wiki.tls=true"
       - "traefik.http.routers.wiki.tls.certresolver=myresolver"
       - "traefik.http.routers.wiki.service=erp"
+
+      - "traefik.http.routers.sb1.rule=Host(`sb1.mitrabisnisdigital.com`)"
+      - "traefik.http.routers.sb1.entrypoints=websecure"
+      - "traefik.http.routers.sb1.tls=true"
+      - "traefik.http.routers.sb1.tls.certresolver=myresolver"
+      - "traefik.http.routers.sb1.service=erp"
 
     volumes:
       - sites:/home/frappe/frappe-bench/sites
