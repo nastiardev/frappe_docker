@@ -112,6 +112,7 @@ services:
 
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default sb1.mitrabisnisdigital.com;
         bench --site sb1.mitrabisnisdigital.com set-config host_name http://frontend:8080;
+        bench --site sb1.mitrabisnisdigital.com install-app twilio_integration
 
   db:
     image: mariadb:10.6
