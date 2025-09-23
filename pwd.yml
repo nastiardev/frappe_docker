@@ -114,6 +114,9 @@ services:
         bench --site sb1.mitrabisnisdigital.com set-config host_name https://sb1.mitrabisnisdigital.com;
         bench --site sb1.mitrabisnisdigital.com install-app twilio_integration
 
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default sb2.mitrabisnisdigital.com;
+        bench --site sb2.mitrabisnisdigital.com set-config host_name https://sb2.mitrabisnisdigital.com;
+
   db:
     image: mariadb:10.6
     networks:
@@ -176,6 +179,12 @@ services:
       - "traefik.http.routers.sb1.tls=true"
       - "traefik.http.routers.sb1.tls.certresolver=myresolver"
       - "traefik.http.routers.sb1.service=erp"
+
+      - "traefik.http.routers.sb2.rule=Host(`sb2.mitrabisnisdigital.com`)"
+      - "traefik.http.routers.sb2.entrypoints=websecure"
+      - "traefik.http.routers.sb2.tls=true"
+      - "traefik.http.routers.sb2.tls.certresolver=myresolver"
+      - "traefik.http.routers.sb2.service=erp"
 
     volumes:
       - sites:/home/frappe/frappe-bench/sites
