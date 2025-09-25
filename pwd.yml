@@ -116,6 +116,7 @@ services:
 
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default sb2.mitrabisnisdigital.com;
         bench --site sb2.mitrabisnisdigital.com set-config host_name https://sb2.mitrabisnisdigital.com;
+        bench --site sb2.mitrabisnisdigital.com install-app print_designer
 
   db:
     image: mariadb:10.6
